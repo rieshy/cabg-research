@@ -219,13 +219,12 @@ def run(df: pd.DataFrame) -> pd.DataFrame:
                 if is_buy  and t_struct <= entry: continue
                 if not is_buy and t_struct >= entry: continue
 
-                t2 = entry + 2*r if is_buy else entry - 2*r
-                t3 = entry + 3*r if is_buy else entry - 3*r
-                t4 = entry + 4*r if is_buy else entry - 4*r
-                t5 = entry + 5*r if is_buy else entry - 5*r
-                t_struct_r = (t_struct - entry) / r if is_buy else (entry - t_struct) / r
+                multiples = [1.0, 1.5, 2.0, 2.5, 3.0, 3.5, 4.0, 4.5, 5.0]
+                targets   = [(f"t{str(m).replace('.','_')}",
+                               entry + m*r if is_buy else entry - m*r)
+                              for m in multiples]
 
-                body = abs(cl[idx] - op[idx])
+                body     = abs(cl[idx] - op[idx])
                 mid_body = (max(op[idx], cl[idx]) + min(op[idx], cl[idx])) / 2
 
                 rec = {
@@ -234,25 +233,21 @@ def run(df: pd.DataFrame) -> pd.DataFrame:
                     "of_state":         OF_NAMES[order_flow],
                     "candle_direction": "green" if is_green else "red",
                     # Candle morphology
-                    "candle_range_atr": round(c_range / a,                    4),
-                    "long_shadow_pct":  round(long_pct,                       4),
-                    "short_shadow_pct": round(short_pct,                      4),
-                    "body_pct":         round(body / c_range,                 4),
+                    "candle_range_atr": round(c_range / a,                       4),
+                    "long_shadow_pct":  round(long_pct,                          4),
+                    "short_shadow_pct": round(short_pct,                         4),
+                    "body_pct":         round(body / c_range,                    4),
                     "body_position_pct":round((mid_body - lo[idx]) / c_range * 100, 1),
                     # Trade levels
-                    "entry":            round(entry,     5),
-                    "sl":               round(sl,        5),
-                    "r":                round(r,         5),
-                    "r_atr":            round(r / a,     4),
-                    "t_struct":         round(t_struct,  5),
-                    "t_struct_r":       round(t_struct_r,2),
-                    "mrh":              round(mrh_price, 5),
-                    "mrl":              round(mrl_price, 5),
+                    "entry":            round(entry,    5),
+                    "sl":               round(sl,       5),
+                    "r":                round(r,        5),
+                    "r_atr":            round(r / a,    4),
+                    "mrh":              round(mrh_price,5),
+                    "mrl":              round(mrl_price,5),
                 }
 
-                for name, tgt in [("t_struct", t_struct),
-                                   ("t2", t2), ("t3", t3),
-                                   ("t4", t4), ("t5", t5)]:
+                for name, tgt in targets:
                     rec[f"hit_{name}"] = scan_target(
                         is_buy, hi, lo, op, cl, entry_idx, sl, tgt)
 
@@ -346,15 +341,17 @@ if __name__ == "__main__":
     results.to_csv(OUTPUT_FILE, index=False)
     print(f"  Saved → {OUTPUT_FILE}")
 
-    print("\n── Hit rates — ALL pins ──")
-    for col in ["hit_t_struct", "hit_t2", "hit_t3", "hit_t4", "hit_t5"]:
-        n   = results[col].sum()
-        pct = n / len(results) * 100
-        print(f"  {col:15s}  {pct:5.1f}%  ({int(n):,}/{len(results):,})")
+    hit_cols = [c for c in results.columns if c.startswith("hit_")]
+    breakeven = {f"hit_t{str(m).replace('.','_')}": 1/(m+1)*100
+                 for m in [1.0,1.5,2.0,2.5,3.0,3.5,4.0,4.5,5.0]}
 
-    for label, sub in [("BUY", buys), ("SELL", sells)]:
-        print(f"\n── Hit rates — {label} pins ──")
-        for col in ["hit_t_struct", "hit_t2", "hit_t3", "hit_t4", "hit_t5"]:
-            n   = sub[col].sum()
-            pct = n / len(sub) * 100
-            print(f"  {col:15s}  {pct:5.1f}%  ({int(n):,}/{len(sub):,})")
+    print(f"\n{'Target':>10}  {'Breakeven':>10}  {'All':>8}  {'Buy':>8}  {'Sell':>8}")
+    print("─" * 52)
+    for col in hit_cols:
+        be  = breakeven.get(col, 0)
+        all_pct  = results[col].mean() * 100
+        buy_pct  = buys[col].mean()   * 100
+        sell_pct = sells[col].mean()  * 100
+        flag = " ✓" if all_pct >= be else ""
+        print(f"  {col.replace('hit_t',''):>8}R  {be:>9.1f}%  "
+              f"{all_pct:>7.1f}%  {buy_pct:>7.1f}%  {sell_pct:>7.1f}%{flag}")
