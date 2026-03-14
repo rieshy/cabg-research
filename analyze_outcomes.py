@@ -167,8 +167,33 @@ def build_report(df: pd.DataFrame, atr_labels: list) -> str:
         out.append(f"\n  {label}")
         out.append(table(sub, "wick_atr_bucket", atr_labels, label_width=14))
 
-    # 7. OF alignment × Session
-    out.append(section("7. COMBINATION — OF alignment × Session"))
+    # 7. Candle body color
+    out.append(section("7. PIN BODY COLOR"))
+    out.append("  buy pin:  green = closed up (body toward signal end)")
+    out.append("            red   = closed down (body toward SL end)\n")
+    for label, mask in [("ALL",  slice(None)),
+                         ("BUY",  df["direction"] == "buy"),
+                         ("SELL", df["direction"] == "sell")]:
+        sub = df[mask] if isinstance(mask, pd.Series) else df
+        out.append(f"\n  {label}")
+        out.append(table(sub, "candle_direction",
+                         ["green", "red"], label_width=8))
+
+    # 9. Prev bar pivot confirmation
+    out.append(section("9. PREV BAR PIVOT CONFIRMATION"))
+    out.append("  buy pin:  prev_low  > pin_low   (prev bar has higher low)")
+    out.append("  sell pin: prev_high < pin_high  (prev bar has lower high)\n")
+    df["pivot_label"] = df["prev_confirms"].map({True: "confirmed", False: "not confirmed"})
+    for label, mask in [("ALL",  slice(None)),
+                         ("BUY",  df["direction"] == "buy"),
+                         ("SELL", df["direction"] == "sell")]:
+        sub = df[mask] if isinstance(mask, pd.Series) else df
+        out.append(f"\n  {label}")
+        out.append(table(sub, "pivot_label",
+                         ["confirmed", "not confirmed"], label_width=15))
+
+    # 10. OF alignment × Session
+    out.append(section("10. COMBINATION — OF alignment × Session"))
     df["combo"] = df["flow_label"].str[:4] + " / " + df["session"]
     combos = [f"{f[:4]} / {s}"
               for f in ["with", "counter"]

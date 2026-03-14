@@ -227,6 +227,9 @@ def run(df: pd.DataFrame) -> pd.DataFrame:
                 body     = abs(cl[idx] - op[idx])
                 mid_body = (max(op[idx], cl[idx]) + min(op[idx], cl[idx])) / 2
 
+                # Pivot check: is prev bar confirming the pin as a local extreme?
+                prev_confirms = (lo[idx - 1] > lo[idx]) if is_buy else (hi[idx - 1] < hi[idx])
+
                 rec = {
                     "time":             ts[idx],
                     "direction":        "buy" if is_buy else "sell",
@@ -238,6 +241,8 @@ def run(df: pd.DataFrame) -> pd.DataFrame:
                     "short_shadow_pct": round(short_pct,                         4),
                     "body_pct":         round(body / c_range,                    4),
                     "body_position_pct":round((mid_body - lo[idx]) / c_range * 100, 1),
+                    # Pivot context
+                    "prev_confirms":    prev_confirms,
                     # Trade levels
                     "entry":            round(entry,    5),
                     "sl":               round(sl,       5),
