@@ -30,7 +30,7 @@ OF_UP        =  2
 
 ATR_PERIOD      = 14
 RESET_STALE_M   = 20
-RESET_STALE_N   = 3.0
+RESET_STALE_N   = 10.0
 
 OF_NAMES = {
     OF_UP: "UP", OF_DOWN: "DOWN",
