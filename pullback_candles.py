@@ -28,7 +28,9 @@ OF_TEST_UP   = -1
 OF_TEST_DOWN =  1
 OF_UP        =  2
 
-ATR_PERIOD   = 14
+ATR_PERIOD      = 14
+RESET_STALE_M   = 20
+RESET_STALE_N   = 3.0
 
 OF_NAMES = {
     OF_UP: "UP", OF_DOWN: "DOWN",
@@ -227,6 +229,26 @@ def simulate(df: pd.DataFrame) -> pd.DataFrame:
     # ── Per-bar loop ──────────────────────────────────────────────────────────
     for idx in range(1, n):
         is_green = cl[idx] >= op[idx]
+
+        # ── Stale level reset ─────────────────────────────────────────────────
+        stale_reset = (
+            idx - mrh_bar > RESET_STALE_M and
+            idx - mrl_bar > RESET_STALE_M and
+            not np.isnan(atr[idx]) and
+            mrh_price - mrl_price > RESET_STALE_N * atr[idx]
+        )
+        if stale_reset:
+            if is_green:
+                mrl_off   = find_new_mrl_offset(hi, lo, 0, idx)
+                mrh_bar   = idx;             mrh_price = hi[idx]
+                mrl_bar   = idx - mrl_off;   mrl_price = lo[idx - mrl_off]
+            else:
+                mrh_off   = find_new_mrh_offset(hi, lo, 0, idx)
+                mrl_bar   = idx;             mrl_price = lo[idx]
+                mrh_bar   = idx - mrh_off;   mrh_price = hi[idx - mrh_off]
+            order_flow    = OF_UP if is_green else OF_DOWN
+            pullback_seen = False
+            continue
 
         # Pullback detection — must run before break detection
         if order_flow == OF_TEST_UP   and hi[idx] < mrh_price:
