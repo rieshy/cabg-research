@@ -155,10 +155,9 @@ def run(df: pd.DataFrame) -> pd.DataFrame:
     n   = len(df)
 
     # OF simulation state
-    order_flow    = OF_UP if cl[0] >= op[0] else OF_DOWN
-    mrh_bar       = 0;  mrh_price = hi[0]
-    mrl_bar       = 0;  mrl_price = lo[0]
-    pullback_seen = False
+    order_flow = OF_UP if cl[0] >= op[0] else OF_DOWN
+    mrh_bar    = 0;  mrh_price = hi[0]
+    mrl_bar    = 0;  mrl_price = lo[0]
 
     records = []
 
@@ -166,10 +165,6 @@ def run(df: pd.DataFrame) -> pd.DataFrame:
         is_green = cl[idx] >= op[idx]
         a = atr[idx]
         if np.isnan(a): continue
-
-        # ── Pullback detection ────────────────────────────────────────────────
-        if order_flow == OF_TEST_UP   and hi[idx] < mrh_price: pullback_seen = True
-        if order_flow == OF_TEST_DOWN and lo[idx] > mrl_price: pullback_seen = True
 
         # ── Stale level reset ─────────────────────────────────────────────────
         stale = (idx - mrh_bar > RESET_STALE_M and
@@ -185,7 +180,6 @@ def run(df: pd.DataFrame) -> pd.DataFrame:
                 mrl_bar = idx;       mrl_price = lo[idx]
                 mrh_bar = idx - off; mrh_price = hi[idx - off]
             order_flow = OF_UP if is_green else OF_DOWN
-            pullback_seen = False
             continue
 
         # ── Pin bar detection — runs before OF update, same as Pine Script ────
@@ -260,14 +254,17 @@ def run(df: pd.DataFrame) -> pd.DataFrame:
 
         # ── OF market structure update ────────────────────────────────────────
         def process_mrh():
-            nonlocal order_flow, mrh_bar, mrh_price, mrl_bar, mrl_price, pullback_seen
+            nonlocal order_flow, mrh_bar, mrh_price, mrl_bar, mrl_price
             if hi[idx] < mrh_price: return
             s = 0 if is_green else 1
-            if order_flow == OF_UP:
+            if order_flow in (OF_UP, OF_TEST_UP):
                 if mrh_bar == idx - 1:
+                    # Consecutive — no pullback yet, just extend
                     mrh_bar = idx; mrh_price = hi[idx]
                 elif hi[idx] > mrh_price:
+                    # Pullback occurred; confirmed break → OF_UP
                     off = find_new_mrl_offset(hi, lo, s, idx)
+                    order_flow = OF_UP
                     mrh_bar = idx; mrh_price = hi[idx]
                     mrl_bar = idx - off; mrl_price = lo[idx - off]
             elif order_flow == OF_TEST_DOWN and hi[idx] > mrh_price:
@@ -280,25 +277,19 @@ def run(df: pd.DataFrame) -> pd.DataFrame:
                 order_flow = OF_TEST_UP
                 mrh_bar = idx; mrh_price = hi[idx]
                 mrl_bar = idx - off; mrl_price = lo[idx - off]
-                pullback_seen = False
-            elif order_flow == OF_TEST_UP and hi[idx] > mrh_price:
-                if pullback_seen:
-                    off = find_new_mrl_offset(hi, lo, s, idx)
-                    order_flow = OF_UP
-                    mrh_bar = idx; mrh_price = hi[idx]
-                    mrl_bar = idx - off; mrl_price = lo[idx - off]
-                else:
-                    mrh_bar = idx; mrh_price = hi[idx]
 
         def process_mrl():
-            nonlocal order_flow, mrh_bar, mrh_price, mrl_bar, mrl_price, pullback_seen
+            nonlocal order_flow, mrh_bar, mrh_price, mrl_bar, mrl_price
             if lo[idx] > mrl_price: return
             s = 1 if is_green else 0
-            if order_flow == OF_DOWN:
+            if order_flow in (OF_DOWN, OF_TEST_DOWN):
                 if mrl_bar == idx - 1:
+                    # Consecutive — no pullback yet, just extend
                     mrl_bar = idx; mrl_price = lo[idx]
                 elif lo[idx] < mrl_price:
+                    # Pullback occurred; confirmed break → OF_DOWN
                     off = find_new_mrh_offset(hi, lo, s, idx)
+                    order_flow = OF_DOWN
                     mrl_bar = idx; mrl_price = lo[idx]
                     mrh_bar = idx - off; mrh_price = hi[idx - off]
             elif order_flow == OF_TEST_UP and lo[idx] < mrl_price:
@@ -311,15 +302,6 @@ def run(df: pd.DataFrame) -> pd.DataFrame:
                 order_flow = OF_TEST_DOWN
                 mrl_bar = idx; mrl_price = lo[idx]
                 mrh_bar = idx - off; mrh_price = hi[idx - off]
-                pullback_seen = False
-            elif order_flow == OF_TEST_DOWN and lo[idx] < mrl_price:
-                if pullback_seen:
-                    off = find_new_mrh_offset(hi, lo, s, idx)
-                    order_flow = OF_DOWN
-                    mrl_bar = idx; mrl_price = lo[idx]
-                    mrh_bar = idx - off; mrh_price = hi[idx - off]
-                else:
-                    mrl_bar = idx; mrl_price = lo[idx]
 
         if is_green: process_mrl(); process_mrh()
         else:        process_mrh(); process_mrl()

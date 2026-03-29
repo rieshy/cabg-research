@@ -176,12 +176,11 @@ def simulate(df: pd.DataFrame) -> pd.DataFrame:
     n = len(df)
 
     # Initial state (mirrors Pine Script var declarations)
-    order_flow    = OF_UP if cl[0] >= op[0] else OF_DOWN
-    mrh_bar       = 0
-    mrh_price     = hi[0]
-    mrl_bar       = 0
-    mrl_price     = lo[0]
-    pullback_seen = False
+    order_flow = OF_UP if cl[0] >= op[0] else OF_DOWN
+    mrh_bar    = 0
+    mrh_price  = hi[0]
+    mrl_bar    = 0
+    mrl_price  = lo[0]
 
     records = []
 
@@ -246,19 +245,12 @@ def simulate(df: pd.DataFrame) -> pd.DataFrame:
                 mrh_off   = find_new_mrh_offset(hi, lo, 0, idx)
                 mrl_bar   = idx;             mrl_price = lo[idx]
                 mrh_bar   = idx - mrh_off;   mrh_price = hi[idx - mrh_off]
-            order_flow    = OF_UP if is_green else OF_DOWN
-            pullback_seen = False
+            order_flow = OF_UP if is_green else OF_DOWN
             continue
-
-        # Pullback detection — must run before break detection
-        if order_flow == OF_TEST_UP   and hi[idx] < mrh_price:
-            pullback_seen = True
-        if order_flow == OF_TEST_DOWN and lo[idx] > mrl_price:
-            pullback_seen = True
 
         # ── MRH processing ────────────────────────────────────────────────────
         def process_mrh():
-            nonlocal order_flow, mrh_bar, mrh_price, mrl_bar, mrl_price, pullback_seen
+            nonlocal order_flow, mrh_bar, mrh_price, mrl_bar, mrl_price
 
             if hi[idx] < mrh_price:
                 return
@@ -268,50 +260,39 @@ def simulate(df: pd.DataFrame) -> pd.DataFrame:
             # red candle   (high first) → skip current bar for MRL  → 1
             mrl_start = 0 if is_green else 1
 
-            if order_flow == OF_UP:
+            if order_flow in (OF_UP, OF_TEST_UP):
                 if mrh_bar == idx - 1:
-                    # Consecutive expansion — just extend, no pullback
+                    # Consecutive — no pullback yet, just extend
                     mrh_bar   = idx
                     mrh_price = hi[idx]
                 elif hi[idx] > mrh_price:
+                    # Pullback occurred; confirmed break → OF_UP
                     prev = mrh_bar
                     record_break("up", idx, prev, order_flow, mrh_price)
-                    mrl_off   = find_new_mrl_offset(hi, lo, mrl_start, idx)
-                    mrh_bar   = idx;        mrh_price = hi[idx]
-                    mrl_bar   = idx - mrl_off; mrl_price = lo[idx - mrl_off]
+                    mrl_off    = find_new_mrl_offset(hi, lo, mrl_start, idx)
+                    order_flow = OF_UP
+                    mrh_bar    = idx;           mrh_price = hi[idx]
+                    mrl_bar    = idx - mrl_off; mrl_price = lo[idx - mrl_off]
 
             elif order_flow == OF_TEST_DOWN and hi[idx] > mrh_price:
                 prev = mrh_bar
                 record_break("up", idx, prev, order_flow, mrh_price)
-                mrl_off   = find_new_mrl_offset(hi, lo, mrl_start, idx)
+                mrl_off    = find_new_mrl_offset(hi, lo, mrl_start, idx)
                 order_flow = OF_UP
-                mrh_bar   = idx;        mrh_price = hi[idx]
-                mrl_bar   = idx - mrl_off; mrl_price = lo[idx - mrl_off]
+                mrh_bar    = idx;           mrh_price = hi[idx]
+                mrl_bar    = idx - mrl_off; mrl_price = lo[idx - mrl_off]
 
             elif order_flow == OF_DOWN and hi[idx] > mrh_price:
                 prev = mrh_bar
                 record_break("up", idx, prev, order_flow, mrh_price)
-                mrl_off   = find_new_mrl_offset(hi, lo, mrl_start, idx)
-                order_flow    = OF_TEST_UP
-                mrh_bar   = idx;        mrh_price = hi[idx]
-                mrl_bar   = idx - mrl_off; mrl_price = lo[idx - mrl_off]
-                pullback_seen = False
-
-            elif order_flow == OF_TEST_UP and hi[idx] > mrh_price:
-                if pullback_seen:
-                    prev = mrh_bar
-                    record_break("up", idx, prev, order_flow, mrh_price)
-                    mrl_off   = find_new_mrl_offset(hi, lo, mrl_start, idx)
-                    order_flow = OF_UP
-                    mrh_bar   = idx;        mrh_price = hi[idx]
-                    mrl_bar   = idx - mrl_off; mrl_price = lo[idx - mrl_off]
-                else:
-                    mrh_bar   = idx
-                    mrh_price = hi[idx]
+                mrl_off    = find_new_mrl_offset(hi, lo, mrl_start, idx)
+                order_flow = OF_TEST_UP
+                mrh_bar    = idx;           mrh_price = hi[idx]
+                mrl_bar    = idx - mrl_off; mrl_price = lo[idx - mrl_off]
 
         # ── MRL processing ────────────────────────────────────────────────────
         def process_mrl():
-            nonlocal order_flow, mrh_bar, mrh_price, mrl_bar, mrl_price, pullback_seen
+            nonlocal order_flow, mrh_bar, mrh_price, mrl_bar, mrl_price
 
             if lo[idx] > mrl_price:
                 return
@@ -321,45 +302,35 @@ def simulate(df: pd.DataFrame) -> pd.DataFrame:
             # green candle (low first)  → skip current bar for MRH   → 1
             mrh_start = 1 if is_green else 0
 
-            if order_flow == OF_DOWN:
+            if order_flow in (OF_DOWN, OF_TEST_DOWN):
                 if mrl_bar == idx - 1:
+                    # Consecutive — no pullback yet, just extend
                     mrl_bar   = idx
                     mrl_price = lo[idx]
                 elif lo[idx] < mrl_price:
+                    # Pullback occurred; confirmed break → OF_DOWN
                     prev = mrl_bar
                     record_break("down", idx, prev, order_flow, mrl_price)
-                    mrh_off   = find_new_mrh_offset(hi, lo, mrh_start, idx)
-                    mrl_bar   = idx;        mrl_price = lo[idx]
-                    mrh_bar   = idx - mrh_off; mrh_price = hi[idx - mrh_off]
+                    mrh_off    = find_new_mrh_offset(hi, lo, mrh_start, idx)
+                    order_flow = OF_DOWN
+                    mrl_bar    = idx;           mrl_price = lo[idx]
+                    mrh_bar    = idx - mrh_off; mrh_price = hi[idx - mrh_off]
 
             elif order_flow == OF_TEST_UP and lo[idx] < mrl_price:
                 prev = mrl_bar
                 record_break("down", idx, prev, order_flow, mrl_price)
-                mrh_off   = find_new_mrh_offset(hi, lo, mrh_start, idx)
+                mrh_off    = find_new_mrh_offset(hi, lo, mrh_start, idx)
                 order_flow = OF_DOWN
-                mrl_bar   = idx;        mrl_price = lo[idx]
-                mrh_bar   = idx - mrh_off; mrh_price = hi[idx - mrh_off]
+                mrl_bar    = idx;           mrl_price = lo[idx]
+                mrh_bar    = idx - mrh_off; mrh_price = hi[idx - mrh_off]
 
             elif order_flow == OF_UP and lo[idx] < mrl_price:
                 prev = mrl_bar
                 record_break("down", idx, prev, order_flow, mrl_price)
-                mrh_off   = find_new_mrh_offset(hi, lo, mrh_start, idx)
-                order_flow    = OF_TEST_DOWN
-                mrl_bar   = idx;        mrl_price = lo[idx]
-                mrh_bar   = idx - mrh_off; mrh_price = hi[idx - mrh_off]
-                pullback_seen = False
-
-            elif order_flow == OF_TEST_DOWN and lo[idx] < mrl_price:
-                if pullback_seen:
-                    prev = mrl_bar
-                    record_break("down", idx, prev, order_flow, mrl_price)
-                    mrh_off   = find_new_mrh_offset(hi, lo, mrh_start, idx)
-                    order_flow = OF_DOWN
-                    mrl_bar   = idx;        mrl_price = lo[idx]
-                    mrh_bar   = idx - mrh_off; mrh_price = hi[idx - mrh_off]
-                else:
-                    mrl_bar   = idx
-                    mrl_price = lo[idx]
+                mrh_off    = find_new_mrh_offset(hi, lo, mrh_start, idx)
+                order_flow = OF_TEST_DOWN
+                mrl_bar    = idx;           mrl_price = lo[idx]
+                mrh_bar    = idx - mrh_off; mrh_price = hi[idx - mrh_off]
 
         # Green: low first (MRL), then high (MRH)
         # Red:   high first (MRH), then low (MRL)

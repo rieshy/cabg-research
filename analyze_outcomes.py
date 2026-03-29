@@ -167,7 +167,37 @@ def build_report(df: pd.DataFrame, atr_labels: list) -> str:
         out.append(f"\n  {label}")
         out.append(table(sub, "wick_atr_bucket", atr_labels, label_width=14))
 
-    # 7. Candle body color
+    # 7. Short shadow — pct buckets
+    out.append(section("7. SHORT SHADOW — short_shadow_pct buckets"))
+    short_pct_labels = ["0.00-0.10", "0.10-0.20", "0.20-0.30"]
+    df["short_pct_bucket"] = pd.cut(df["short_shadow_pct"],
+                                    bins=[0.0, 0.10, 0.20, 0.31],
+                                    labels=short_pct_labels, right=False)
+    for label, mask in [("ALL",  slice(None)),
+                         ("BUY",  df["direction"] == "buy"),
+                         ("SELL", df["direction"] == "sell")]:
+        sub = df[mask] if isinstance(mask, pd.Series) else df
+        out.append(f"\n  {label}")
+        out.append(table(sub, "short_pct_bucket", short_pct_labels, label_width=12))
+
+    # Short shadow — ATR buckets
+    out.append(section("7b. SHORT SHADOW — short_shadow_atr quartile buckets"))
+    df["short_shadow_atr"] = df["candle_range_atr"] * df["short_shadow_pct"]
+    sq25, sq50, sq75 = df["short_shadow_atr"].quantile([.25, .50, .75])
+    satr_labels = [f"<{sq25:.3f}", f"{sq25:.3f}-{sq50:.3f}",
+                   f"{sq50:.3f}-{sq75:.3f}", f">{sq75:.3f}"]
+    df["short_atr_bucket"] = pd.cut(df["short_shadow_atr"],
+                                    bins=[0, sq25, sq50, sq75, 999],
+                                    labels=satr_labels)
+    out.append(f"  ATR quartiles: p25={sq25:.3f}  p50={sq50:.3f}  p75={sq75:.3f}")
+    for label, mask in [("ALL",  slice(None)),
+                         ("BUY",  df["direction"] == "buy"),
+                         ("SELL", df["direction"] == "sell")]:
+        sub = df[mask] if isinstance(mask, pd.Series) else df
+        out.append(f"\n  {label}")
+        out.append(table(sub, "short_atr_bucket", satr_labels, label_width=14))
+
+    # 8. Candle body color
     out.append(section("7. PIN BODY COLOR"))
     out.append("  buy pin:  green = closed up (body toward signal end)")
     out.append("            red   = closed down (body toward SL end)\n")
@@ -192,8 +222,86 @@ def build_report(df: pd.DataFrame, atr_labels: list) -> str:
         out.append(table(sub, "pivot_label",
                          ["confirmed", "not confirmed"], label_width=15))
 
-    # 10. OF alignment × Session
-    out.append(section("10. COMBINATION — OF alignment × Session"))
+    # 10. Candle range — relative (ATR) buckets
+    out.append(section("10. CANDLE RANGE — candle_range_atr buckets"))
+    range_atr_labels = ["0.5-1.0", "1.0-1.5", "1.5-2.0", "2.0-3.0"]
+    df["range_atr_bucket"] = pd.cut(df["candle_range_atr"],
+                                    bins=[0.5, 1.0, 1.5, 2.0, 3.01],
+                                    labels=range_atr_labels, right=False)
+    for label, mask in [("ALL",  slice(None)),
+                         ("BUY",  df["direction"] == "buy"),
+                         ("SELL", df["direction"] == "sell")]:
+        sub = df[mask] if isinstance(mask, pd.Series) else df
+        out.append(f"\n  {label}")
+        out.append(table(sub, "range_atr_bucket", range_atr_labels, label_width=10))
+
+    # 10b. Candle range — absolute (pips) quartile buckets
+    out.append(section("10b. CANDLE RANGE — absolute (ATR units × ATR) quartile buckets"))
+    df["atr_val"]       = df["r"] / df["r_atr"]                      # ATR in price units
+    df["candle_range"]  = df["candle_range_atr"] * df["atr_val"]     # absolute range
+    df["range_pips"]    = (df["candle_range"] * 10000).round(1)      # pips (4-decimal pair)
+    rq25, rq50, rq75 = df["range_pips"].quantile([.25, .50, .75])
+    range_abs_labels = [f"<{rq25:.1f}", f"{rq25:.1f}-{rq50:.1f}",
+                        f"{rq50:.1f}-{rq75:.1f}", f">{rq75:.1f}"]
+    df["range_abs_bucket"] = pd.cut(df["range_pips"],
+                                    bins=[0, rq25, rq50, rq75, 9999],
+                                    labels=range_abs_labels)
+    out.append(f"  Pip quartiles: p25={rq25:.1f}  p50={rq50:.1f}  p75={rq75:.1f}")
+    for label, mask in [("ALL",  slice(None)),
+                         ("BUY",  df["direction"] == "buy"),
+                         ("SELL", df["direction"] == "sell")]:
+        sub = df[mask] if isinstance(mask, pd.Series) else df
+        out.append(f"\n  {label}")
+        out.append(table(sub, "range_abs_bucket", range_abs_labels, label_width=12))
+
+    # 11. Distance to structural level (MRH/MRL) in R multiples
+    out.append(section("11. DISTANCE TO STRUCTURAL LEVEL — R multiples"))
+    out.append("  buy:  (mrh - entry) / r    sell: (entry - mrl) / r\n")
+    df["dist_level_r"] = np.where(
+        df["direction"] == "buy",
+        (df["mrh"] - df["entry"]) / df["r"],
+        (df["entry"] - df["mrl"]) / df["r"],
+    )
+    dq25, dq50, dq75 = df["dist_level_r"].quantile([.25, .50, .75])
+    dist_labels = [f"<{dq25:.1f}R", f"{dq25:.1f}-{dq50:.1f}R",
+                   f"{dq50:.1f}-{dq75:.1f}R", f">{dq75:.1f}R"]
+    df["dist_level_bucket"] = pd.cut(df["dist_level_r"],
+                                     bins=[0, dq25, dq50, dq75, 9999],
+                                     labels=dist_labels)
+    out.append(f"  R quartiles: p25={dq25:.2f}  p50={dq50:.2f}  p75={dq75:.2f}")
+    out.append(f"  (distribution stats:  mean={df['dist_level_r'].mean():.2f}"
+               f"  max={df['dist_level_r'].max():.2f})")
+    for label, mask in [("ALL",  slice(None)),
+                         ("BUY",  df["direction"] == "buy"),
+                         ("SELL", df["direction"] == "sell")]:
+        sub = df[mask] if isinstance(mask, pd.Series) else df
+        out.append(f"\n  {label}")
+        out.append(table(sub, "dist_level_bucket", dist_labels, label_width=12))
+
+    # 11b. Distance to structural level — ATR multiples
+    out.append(section("11b. DISTANCE TO STRUCTURAL LEVEL — ATR multiples"))
+    df["atr_val2"]     = df["r"] / df["r_atr"]
+    df["dist_level_atr"] = np.where(
+        df["direction"] == "buy",
+        (df["mrh"] - df["entry"]) / df["atr_val2"],
+        (df["entry"] - df["mrl"]) / df["atr_val2"],
+    )
+    daq25, daq50, daq75 = df["dist_level_atr"].quantile([.25, .50, .75])
+    dist_atr_labels = [f"<{daq25:.2f}", f"{daq25:.2f}-{daq50:.2f}",
+                       f"{daq50:.2f}-{daq75:.2f}", f">{daq75:.2f}"]
+    df["dist_atr_bucket"] = pd.cut(df["dist_level_atr"],
+                                   bins=[0, daq25, daq50, daq75, 9999],
+                                   labels=dist_atr_labels)
+    out.append(f"  ATR quartiles: p25={daq25:.3f}  p50={daq50:.3f}  p75={daq75:.3f}")
+    for label, mask in [("ALL",  slice(None)),
+                         ("BUY",  df["direction"] == "buy"),
+                         ("SELL", df["direction"] == "sell")]:
+        sub = df[mask] if isinstance(mask, pd.Series) else df
+        out.append(f"\n  {label}")
+        out.append(table(sub, "dist_atr_bucket", dist_atr_labels, label_width=12))
+
+    # 12. OF alignment × Session
+    out.append(section("12. COMBINATION — OF alignment × Session"))
     df["combo"] = df["flow_label"].str[:4] + " / " + df["session"]
     combos = [f"{f[:4]} / {s}"
               for f in ["with", "counter"]
